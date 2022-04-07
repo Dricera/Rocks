@@ -22,9 +22,9 @@ internal static class MockMethodVoidBuilder
 			};
 			return $"{direction}{(_.IsParams ? "params " : string.Empty)}{_.Type.GetName()} {_.Name}";
 		}));
+
 		var explicitTypeNameDescription = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.Yes ?
 			$"{method.ContainingType.GetName(TypeNameOption.NoGenerics)}." : string.Empty;
-		var methodDescription = $"void {explicitTypeNameDescription}{method.GetName()}({parametersDescription})";
 
 		var methodParameters = string.Join(", ", method.Parameters.Select(_ =>
 		{
@@ -40,8 +40,11 @@ internal static class MockMethodVoidBuilder
 			return $"{(_.GetAttributes().Length > 0 ? $"{_.GetAttributes().GetDescription(compilation)} " : string.Empty)}{parameter}";
 		}));
 		var isUnsafe = method.IsUnsafe() ? "unsafe " : string.Empty;
+		var isStatic = method.IsStatic ? "static " : string.Empty;
+
+		var methodDescription = $"{isStatic}void {explicitTypeNameDescription}{method.GetName()}({parametersDescription})";
 		var methodSignature =
-			$"{isUnsafe}void {explicitTypeNameDescription}{method.GetName()}({methodParameters})";
+			$"{isUnsafe}{isStatic}void {explicitTypeNameDescription}{method.GetName()}({methodParameters})";
 		var methodException =
 			$"void {explicitTypeNameDescription}{method.GetName()}({string.Join(", ", method.Parameters.Select(_ => $"{{{_.Name}}}"))})";
 
@@ -104,7 +107,7 @@ internal static class MockMethodVoidBuilder
 		writer.WriteLine("else");
 		writer.WriteLine("{");
 		writer.Indent++;
-		writer.WriteLine($"throw new {nameof(ExpectationException)}(\"No handlers were found for {methodSignature.Replace("\"", "\\\"")})\");");
+		writer.WriteLine($"throw new {nameof(ExpectationException)}(\"No handlers were found for {methodSignature.Replace("\"", "\\\"")}\");");
 		writer.Indent--;
 		writer.WriteLine("}");
 
@@ -173,7 +176,7 @@ internal static class MockMethodVoidBuilder
 		writer.WriteLine("if (!foundMatch)");
 		writer.WriteLine("{");
 		writer.Indent++;
-		writer.WriteLine($"throw new {nameof(ExpectationException)}(\"No handlers were found for {methodSignature.Replace("\"", "\\\"")})\");");
+		writer.WriteLine($"throw new {nameof(ExpectationException)}(\"No handlers were found for {methodSignature.Replace("\"", "\\\"")}\");");
 		writer.Indent--;
 		writer.WriteLine("}");
 	}

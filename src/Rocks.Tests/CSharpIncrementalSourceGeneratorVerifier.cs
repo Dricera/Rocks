@@ -21,18 +21,8 @@ namespace Rocks.Tests
 #pragma warning restore CA1034 // Nested types should not be visible
 		{
 			public Test() =>
-				this.SolutionTransforms.Add((solution, projectId) =>
+				this.SolutionTransforms.Add((solution!!, projectId!!) =>
 				{
-					if (solution is null)
-					{
-						throw new ArgumentNullException(nameof(solution));
-					}
-
-					if (projectId is null)
-					{
-						throw new ArgumentNullException(nameof(projectId));
-					}
-
 					var compilationOptions = solution.GetProject(projectId)!.CompilationOptions!;
 					compilationOptions = compilationOptions.WithSpecificDiagnosticOptions(
 					compilationOptions.SpecificDiagnosticOptions.SetItems(CSharpVerifierHelper.NullableWarnings));
@@ -49,6 +39,7 @@ namespace Rocks.Tests
 			protected override ParseOptions CreateParseOptions()
 			{
 				var parseOptions = (CSharpParseOptions)base.CreateParseOptions();
+				// TODO: How do I <EnablePreviewFeatures>true</EnablePreviewFeatures>?
 				return parseOptions.WithLanguageVersion(LanguageVersion.Preview);
 			}
 		}

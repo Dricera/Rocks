@@ -26,7 +26,6 @@ internal static class MockMethodValueBuilder
 		}));
 		var explicitTypeNameDescription = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.Yes ?
 			$"{method.ContainingType.GetName(TypeNameOption.NoGenerics)}." : string.Empty;
-		var methodDescription = $"{returnType} {explicitTypeNameDescription}{method.GetName()}({parametersDescription})";
 
 		var methodParameters = string.Join(", ", method.Parameters.Select(_ =>
 		{
@@ -42,8 +41,11 @@ internal static class MockMethodValueBuilder
 			return $"{(_.GetAttributes().Length > 0 ? $"{_.GetAttributes().GetDescription(compilation)} " : string.Empty)}{parameter}";
 		}));
 		var isUnsafe = method.IsUnsafe() ? "unsafe " : string.Empty;
+		var isStatic = method.IsStatic ? "static " : string.Empty;
+
+		var methodDescription = $"{isStatic}{returnType} {explicitTypeNameDescription}{method.GetName()}({parametersDescription})";
 		var methodSignature =
-			$"{isUnsafe}{returnType} {explicitTypeNameDescription}{method.GetName()}({methodParameters})";
+			$"{isUnsafe}{isStatic}{returnType} {explicitTypeNameDescription}{method.GetName()}({methodParameters})";
 		var methodException =
 			$"{returnType} {explicitTypeNameDescription}{method.GetName()}({string.Join(", ", method.Parameters.Select(_ => $"{{{_.Name}}}"))})";
 

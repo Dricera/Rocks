@@ -13,7 +13,7 @@ internal static class TestAssistants
 	{
 		var test = new CSharpIncrementalSourceGeneratorVerifier<T>.Test
 		{
-			ReferenceAssemblies = ReferenceAssemblies.Net.Net50,
+			ReferenceAssemblies = ReferenceAssemblies.Net.Net60,
 			TestState =
 			{
 				Sources = { code },
