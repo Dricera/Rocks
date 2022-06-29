@@ -21,7 +21,7 @@ namespace Rocks.Tests
 #pragma warning restore CA1034 // Nested types should not be visible
 		{
 			public Test() =>
-				this.SolutionTransforms.Add((solution!!, projectId!!) =>
+				this.SolutionTransforms.Add((solution, projectId) =>
 				{
 					var compilationOptions = solution.GetProject(projectId)!.CompilationOptions!;
 					compilationOptions = compilationOptions.WithSpecificDiagnosticOptions(

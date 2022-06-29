@@ -26,7 +26,6 @@ internal static class MockMethodVoidBuilder
 
 		var explicitTypeNameDescription = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.Yes ?
 			$"{method.ContainingType.GetName(TypeNameOption.IncludeGenerics)}." : string.Empty;
-		var methodDescription = $"void {explicitTypeNameDescription}{method.GetName()}({parametersDescription})";
 
 		var methodParameters = string.Join(", ", method.Parameters.Select(_ =>
 		{
