@@ -14,10 +14,31 @@ internal static class MockConstructorBuilder
 
 		if (parameters.Length > 0)
 		{
-			var instanceParameters = string.Join(", ", parameters.Select(_ => $"{_.Type.GetName()} {_.Name}"));
-			writer.WriteLine($"public {nameof(Rock)}{typeToMock.FlattenedName}({instanceParameters})");
+			var instanceParameters = string.Join(", ", parameters.Select(_ =>
+			{
+				var direction = _.RefKind switch
+				{
+					RefKind.Ref => "ref ",
+					RefKind.Out => "out ",
+					RefKind.In => "in ",
+					_ => string.Empty
+				};
+				return $"{direction}{(_.IsParams ? "params " : string.Empty)}{_.Type.GetReferenceableName()} {_.Name}";
+			}));
+			var isUnsafe = parameters.Any(_ => _.Type.IsPointer()) ? "unsafe " : string.Empty;
+			writer.WriteLine($"public {isUnsafe}{nameof(Rock)}{typeToMock.FlattenedName}({instanceParameters})");
 			writer.Indent++;
-			writer.WriteLine($": base({string.Join(", ", parameters.Select(_ => $"{_.Name}"))})");
+			writer.WriteLine(@$": base({string.Join(", ", parameters.Select(_ =>
+			{
+				var direction = _.RefKind switch
+				{
+					RefKind.Ref => "ref ",
+					RefKind.Out => "out ",
+					RefKind.In => "in ",
+					_ => string.Empty
+				};
+				return $"{direction}{_.Name}";
+			}))})");
 			writer.Indent--;
 			writer.WriteLine("{ }");
 		}

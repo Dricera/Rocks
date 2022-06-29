@@ -49,7 +49,7 @@ internal static class AttributeDataExtensions
 				TypedConstantKind.Primitive => GetValue(value.Value),
 				TypedConstantKind.Type => $"typeof({((INamedTypeSymbol)value.Value!).GetName()})",
 				TypedConstantKind.Array => $"new[] {{ {string.Join(", ", value.Values.Select(v => GetValue(v)))} }}",
-				TypedConstantKind.Enum => $"({value.Type!.GetName()}){value.Value}",
+				TypedConstantKind.Enum => $"({value.Type!.GetName()})({value.Value})",
 				_ => value.Value?.ToString() ?? string.Empty
 			};
 
@@ -81,12 +81,21 @@ internal static class AttributeDataExtensions
 
 	internal static string GetDescription(this ImmutableArray<AttributeData> self, Compilation compilation, AttributeTargets? target = null)
 	{
-		// We can't emit attributes that are compiler-generated
+		// We can't emit attributes that are:
+		// * Compiler-generated
+		// * Not visible to the current compilation (e.g. IntrinsicAttribute).
+		// * IteratorStateMachineAttribute (see https://docs.microsoft.com/en-us/dotnet/api/system.runtime.compilerservices.iteratorstatemachineattribute#remarks)
+		// * AsyncStateMachineAttribute (see https://docs.microsoft.com/en-us/dotnet/api/system.runtime.compilerservices.asyncstatemachineattribute#remarks)
 		var compilerGeneratedAttribute = compilation.GetTypeByMetadataName(typeof(CompilerGeneratedAttribute).FullName);
+		var iteratorStateMachineAttribute = compilation.GetTypeByMetadataName(typeof(IteratorStateMachineAttribute).FullName);
+		var asyncStateMachineAttribute = compilation.GetTypeByMetadataName(typeof(AsyncStateMachineAttribute).FullName);
 
 		var attributes = self.Where(
-			_ => _.AttributeClass is not null && !_.AttributeClass.GetAttributes().Any(
-				_ => _.AttributeClass is not null && _.AttributeClass.Equals(compilerGeneratedAttribute))).ToImmutableArray();
+			_ => _.AttributeClass is not null &&
+				_.AttributeClass.CanBeSeenByContainingAssembly(compilation.Assembly) &&
+				!_.AttributeClass.Equals(compilerGeneratedAttribute, SymbolEqualityComparer.Default) &&
+				!_.AttributeClass.Equals(iteratorStateMachineAttribute, SymbolEqualityComparer.Default) &&
+				!_.AttributeClass.Equals(asyncStateMachineAttribute, SymbolEqualityComparer.Default)).ToImmutableArray();
 
 		if (attributes.Length == 0)
 		{

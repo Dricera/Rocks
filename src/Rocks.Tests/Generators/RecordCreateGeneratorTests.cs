@@ -38,6 +38,7 @@ using Rocks.Expectations;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Text;
 
 #nullable enable
 namespace MockTests
@@ -46,6 +47,12 @@ namespace MockTests
 	{
 		internal static MethodExpectations<RecordTest> Methods(this Expectations<RecordTest> self) =>
 			new(self);
+		
+		internal static PropertyExpectations<RecordTest> Properties(this Expectations<RecordTest> self) =>
+			new(self);
+		
+		internal static PropertyGetterExpectations<RecordTest> Getters(this PropertyExpectations<RecordTest> self) =>
+			new(self.Expectations);
 		
 		internal static RecordTest Instance(this Expectations<RecordTest> self)
 		{
@@ -100,7 +107,7 @@ namespace MockTests
 				}
 				else
 				{
-					throw new ExpectationException(""No handlers were found for void Foo())"");
+					base.Foo();
 				}
 			}
 			
@@ -116,14 +123,41 @@ namespace MockTests
 					methodHandler.IncrementCallCount();
 					return result!;
 				}
-				
-				throw new ExpectationException(""No handlers were found for string ToString()"");
+				else
+				{
+					return base.ToString();
+				}
 			}
 			
-			[MemberIdentifier(4, ""int GetHashCode()"")]
-			public override int GetHashCode()
+			[MemberIdentifier(4, ""bool PrintMembers(StringBuilder builder)"")]
+			protected override bool PrintMembers(StringBuilder builder)
 			{
 				if (this.handlers.TryGetValue(4, out var methodHandlers))
+				{
+					foreach (var methodHandler in methodHandlers)
+					{
+						if (((methodHandler.Expectations[0] as Argument<StringBuilder>)?.IsValid(builder) ?? false))
+						{
+							var result = methodHandler.Method is not null ?
+								((Func<StringBuilder, bool>)methodHandler.Method)(builder) :
+								((HandlerInformation<bool>)methodHandler).ReturnValue;
+							methodHandler.IncrementCallCount();
+							return result!;
+						}
+					}
+					
+					throw new ExpectationException(""No handlers match for bool PrintMembers(StringBuilder builder)"");
+				}
+				else
+				{
+					return base.PrintMembers(builder);
+				}
+			}
+			
+			[MemberIdentifier(5, ""int GetHashCode()"")]
+			public override int GetHashCode()
+			{
+				if (this.handlers.TryGetValue(5, out var methodHandlers))
 				{
 					var methodHandler = methodHandlers[0];
 					var result = methodHandler.Method is not null ?
@@ -132,10 +166,32 @@ namespace MockTests
 					methodHandler.IncrementCallCount();
 					return result!;
 				}
-				
-				throw new ExpectationException(""No handlers were found for int GetHashCode()"");
+				else
+				{
+					return base.GetHashCode();
+				}
 			}
 			
+			[MemberIdentifier(6, ""get_EqualityContract()"")]
+			protected override Type EqualityContract
+			{
+				get
+				{
+					if (this.handlers.TryGetValue(6, out var methodHandlers))
+					{
+						var methodHandler = methodHandlers[0];
+						var result = methodHandler.Method is not null ?
+							((Func<Type>)methodHandler.Method)() :
+							((HandlerInformation<Type>)methodHandler).ReturnValue;
+						methodHandler.IncrementCallCount();
+						return result!;
+					}
+					else
+					{
+						return base.EqualityContract;
+					}
+				}
+			}
 			
 			Dictionary<int, List<HandlerInformation>> IMock.Handlers => this.handlers;
 		}
@@ -147,8 +203,16 @@ namespace MockTests
 			new MethodAdornments<RecordTest, Action>(self.Add(2, new List<Argument>()));
 		internal static MethodAdornments<RecordTest, Func<string>, string> ToString(this MethodExpectations<RecordTest> self) =>
 			new MethodAdornments<RecordTest, Func<string>, string>(self.Add<string>(3, new List<Argument>()));
+		internal static MethodAdornments<RecordTest, Func<StringBuilder, bool>, bool> PrintMembers(this MethodExpectations<RecordTest> self, Argument<StringBuilder> builder) =>
+			new MethodAdornments<RecordTest, Func<StringBuilder, bool>, bool>(self.Add<bool>(4, new List<Argument>(1) { builder }));
 		internal static MethodAdornments<RecordTest, Func<int>, int> GetHashCode(this MethodExpectations<RecordTest> self) =>
-			new MethodAdornments<RecordTest, Func<int>, int>(self.Add<int>(4, new List<Argument>()));
+			new MethodAdornments<RecordTest, Func<int>, int>(self.Add<int>(5, new List<Argument>()));
+	}
+	
+	internal static class PropertyGetterExpectationsOfRecordTestExtensions
+	{
+		internal static PropertyAdornments<RecordTest, Func<Type>, Type> EqualityContract(this PropertyGetterExpectations<RecordTest> self) =>
+			new PropertyAdornments<RecordTest, Func<Type>, Type>(self.Add<Type>(6, new List<Argument>()));
 	}
 }
 ";

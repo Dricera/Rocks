@@ -12,7 +12,7 @@ internal static class MockIndexerBuilder
 		var indexer = result.Value;
 		var attributes = indexer.GetAttributes();
 		var explicitTypeName = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.No ?
-			string.Empty : $"{indexer.ContainingType.GetName(TypeNameOption.NoGenerics)}.";
+			string.Empty : $"{indexer.ContainingType.GetName(TypeNameOption.IncludeGenerics)}.";
 
 		if (attributes.Length > 0)
 		{
@@ -20,13 +20,13 @@ internal static class MockIndexerBuilder
 		}
 
 		var visibility = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.No ?
-			"public " : string.Empty;
+			$"{result.Value.DeclaredAccessibility.GetOverridingCodeValue()} " : string.Empty;
 		var isUnsafe = indexer.IsUnsafe() ? "unsafe " : string.Empty;
 		var isOverriden = result.RequiresOverride == RequiresOverride.Yes ? "override " : string.Empty;
 		var indexerSignature = $"{explicitTypeName}{MockIndexerBuilder.GetSignature(indexer.Parameters, true, compilation)}";
 
 		var returnByRef = indexer.ReturnsByRef ? "ref " : indexer.ReturnsByRefReadonly ? "ref readonly " : string.Empty;
-		writer.WriteLine($"{visibility}{isUnsafe}{isOverriden}{returnByRef}{indexer.Type.GetName()} {indexerSignature}");
+		writer.WriteLine($"{visibility}{isUnsafe}{isOverriden}{returnByRef}{indexer.Type.GetReferenceableName()} {indexerSignature}");
 		writer.WriteLine("{");
 		writer.Indent++;
 
@@ -68,7 +68,7 @@ internal static class MockIndexerBuilder
 				RefKind.In => "in ",
 				_ => string.Empty
 			};
-			var parameter = $"{direction}{(_.IsParams ? "params " : string.Empty)}{_.Type.GetName()} {_.Name}{defaultValue}";
+			var parameter = $"{direction}{(_.IsParams ? "params " : string.Empty)}{_.Type.GetReferenceableName()} {_.Name}{defaultValue}";
 			return $"{(_.GetAttributes().Length > 0 ? $"{_.GetAttributes().GetDescription(compilation)} " : string.Empty)}{parameter}";
 		}));
 

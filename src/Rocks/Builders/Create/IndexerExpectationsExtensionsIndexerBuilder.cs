@@ -8,33 +8,38 @@ internal static class IndexerExpectationsExtensionsIndexerBuilder
 	private static void BuildGetter(IndentedTextWriter writer, PropertyMockableResult result, uint memberIdentifier)
 	{
 		var property = result.Value;
-		var propertyReturnValue = property.Type.GetName();
+		var propertyGetMethod = property.GetMethod!;
+
 		var mockTypeName = result.MockType.GetName();
 		var thisTypeName = $"{WellKnownNames.Indexer}{WellKnownNames.Getter}{WellKnownNames.Expectations}";
 		var thisParameter = $"this {thisTypeName}<{mockTypeName}> self";
 
-		var delegateTypeName = property.GetMethod!.RequiresProjectedDelegate() ?
-			MockProjectedDelegateBuilder.GetProjectedDelegateName(property.GetMethod!) :
+		var delegateTypeName = propertyGetMethod.RequiresProjectedDelegate() ?
+			MockProjectedDelegateBuilder.GetProjectedCallbackDelegateName(propertyGetMethod) :
 			DelegateBuilder.Build(property.Parameters, property.Type);
-		var adornmentsType = property.GetMethod!.RequiresProjectedDelegate() ?
+		var propertyReturnValue = propertyGetMethod.ReturnType.IsRefLikeType ?
+			MockProjectedDelegateBuilder.GetProjectedReturnValueDelegateName(propertyGetMethod) : 
+			propertyGetMethod.ReturnType.GetReferenceableName();
+		var adornmentsType = propertyGetMethod.ReturnType.IsPointer() ?
 			$"{MockProjectedTypesAdornmentsBuilder.GetProjectedAdornmentName(property.Type, AdornmentType.Indexer, false)}<{mockTypeName}, {delegateTypeName}>" :
 			$"{WellKnownNames.Indexer}{WellKnownNames.Adornments}<{mockTypeName}, {delegateTypeName}, {propertyReturnValue}>";
 		var (returnValue, newAdornments) = (adornmentsType, $"new {adornmentsType}");
 
 		var instanceParameters = string.Join(", ", thisParameter,
-			string.Join(", ", property.GetMethod!.Parameters.Select(_ =>
+			string.Join(", ", propertyGetMethod.Parameters.Select(_ =>
 			{
-				return $"{nameof(Argument)}<{_.Type.GetName()}> {_.Name}";
+				return $"{nameof(Argument)}<{_.Type.GetReferenceableName()}> {_.Name}";
 			})));
 
 		writer.WriteLine($"internal static {returnValue} {WellKnownNames.This}({instanceParameters}) =>");
 		writer.Indent++;
 
-		var parameters = string.Join(", ", property.GetMethod!.Parameters.Select(
+		var parameters = string.Join(", ", propertyGetMethod.Parameters.Select(
 			_ => _.HasExplicitDefaultValue ? $"{_.Name}.{WellKnownNames.Transform}({_.ExplicitDefaultValue.GetDefaultValue(_.Type.IsValueType)})" : _.Name));
-		var addMethod = property.Type.IsEsoteric() ?
-			MockProjectedTypesAdornmentsBuilder.GetProjectedAddExtensionMethodName(property.Type) : $"Add<{propertyReturnValue}>";
-		writer.WriteLine($"{newAdornments}(self.{addMethod}({memberIdentifier}, new List<{nameof(Argument)}>({property.GetMethod!.Parameters.Length}) {{ {parameters} }}));");
+		var addMethod = property.Type.IsPointer() ?
+			MockProjectedTypesAdornmentsBuilder.GetProjectedAddExtensionMethodName(property.Type) : 
+			$"Add<{propertyReturnValue}>";
+		writer.WriteLine($"{newAdornments}(self.{addMethod}({memberIdentifier}, new List<{nameof(Argument)}>({propertyGetMethod.Parameters.Length}) {{ {parameters} }}));");
 		writer.Indent--;
 	}
 
@@ -45,7 +50,7 @@ internal static class IndexerExpectationsExtensionsIndexerBuilder
 		var thisTypeName = $"{WellKnownNames.Indexer}{WellKnownNames.Setter}{WellKnownNames.Expectations}";
 		var thisParameter = $"this {thisTypeName}<{mockTypeName}> self";
 		var delegateTypeName = property.SetMethod!.RequiresProjectedDelegate() ?
-			MockProjectedDelegateBuilder.GetProjectedDelegateName(property.SetMethod!) :
+			MockProjectedDelegateBuilder.GetProjectedCallbackDelegateName(property.SetMethod!) :
 			DelegateBuilder.Build(property.SetMethod!.Parameters);
 		var adornmentsType = property.SetMethod!.RequiresProjectedDelegate() ?
 			$"{MockProjectedTypesAdornmentsBuilder.GetProjectedAdornmentName(property.Type, AdornmentType.Indexer, false)}<{mockTypeName}, {delegateTypeName}>" :
@@ -55,12 +60,13 @@ internal static class IndexerExpectationsExtensionsIndexerBuilder
 		var instanceParameters = string.Join(", ", thisParameter,
 			string.Join(", ", property.SetMethod!.Parameters.Select(_ =>
 			{
-				return $"{nameof(Argument)}<{_.Type.GetName()}> {_.Name}";
+				return $"{nameof(Argument)}<{_.Type.GetReferenceableName()}> {_.Name}";
 			})));
 
 		writer.WriteLine($"internal static {returnValue} {WellKnownNames.This}({instanceParameters}) =>");
 		writer.Indent++;
 
+		// TODO: This doesn't seem right, the getter has an "add" qualified for projected names.
 		var parameters = string.Join(", ", property.SetMethod!.Parameters.Select(
 			_ => _.HasExplicitDefaultValue ? $"{_.Name}.{WellKnownNames.Transform}({_.ExplicitDefaultValue.GetDefaultValue(_.Type.IsValueType)})" : _.Name));
 		writer.WriteLine($"{newAdornments}(self.Add({memberIdentifier}, new List<{nameof(Argument)}>({property.SetMethod!.Parameters.Length}) {{ {parameters} }}));");

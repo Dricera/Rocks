@@ -18,15 +18,15 @@ internal static class MockPropertyBuilder
 		}
 
 		var explicitTypeName = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.No ?
-			string.Empty : $"{property.ContainingType.GetName(TypeNameOption.NoGenerics)}.";
+			string.Empty : $"{property.ContainingType.GetReferenceableName()}.";
 
 		var visibility = result.RequiresExplicitInterfaceImplementation == RequiresExplicitInterfaceImplementation.No ?
-			"public " : string.Empty;
+			$"{result.Value.DeclaredAccessibility.GetOverridingCodeValue()} " : string.Empty;
 		var isUnsafe = property.IsUnsafe() ? "unsafe " : string.Empty;
 		var isOverriden = result.RequiresOverride == RequiresOverride.Yes ? "override " : string.Empty;
 
 		var returnByRef = property.ReturnsByRef ? "ref " : property.ReturnsByRefReadonly ? "ref readonly " : string.Empty;
-		writer.WriteLine($"{visibility}{isUnsafe}{isOverriden}{returnByRef}{property.Type.GetName()} {explicitTypeName}{property.Name}");
+		writer.WriteLine($"{visibility}{isUnsafe}{isOverriden}{returnByRef}{property.Type.GetReferenceableName()} {explicitTypeName}{property.Name}");
 		writer.WriteLine("{");
 		writer.Indent++;
 

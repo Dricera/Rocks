@@ -39,6 +39,39 @@ internal static class ITypeSymbolExtensions
 		return false;
 	}
 
+	// Gets the name of the type, useful for getting the name of a type
+	// that will be used in a parameter name.
+	// For example if the type is "FileTransform", which is a nested type,
+	// this will return "FileSystemEnumerable<object>.FindTransform"
+	internal static string GetReferenceableName(this ITypeSymbol self)
+	{
+		if (self.Kind == SymbolKind.PointerType || self.Kind == SymbolKind.FunctionPointerType)
+		{
+			return self.ToDisplayString();
+		}
+		else if(self.Kind == SymbolKind.TypeParameter)
+		{
+			return $"{self.Name}{(self.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty)}";
+		}
+		else
+		{
+			var names = new List<string>();
+
+			var currentSelf = self;
+
+			while(currentSelf is not null)
+			{
+				names.Insert(0, currentSelf.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
+				currentSelf = currentSelf.ContainingType;
+			}
+
+			return string.Join(".", names);
+		}
+	}
+
+	// TODO: This method really needs to change.
+	// It's doing WAY too much in too many different contexts.
+	// I need to split this out and have methods that are well-focus and defined.
 	internal static string GetName(this ITypeSymbol self, TypeNameOption options = TypeNameOption.IncludeGenerics)
 	{
 		static string GetFlattenedName(INamedTypeSymbol flattenedName, TypeNameOption flattenedOptions)
@@ -53,15 +86,44 @@ internal static class ITypeSymbolExtensions
 			}
 		}
 
+		static INamedTypeSymbol? GetContainingType(ITypeSymbol symbol)
+		{
+			if (symbol is IPointerTypeSymbol pointerSymbol)
+			{
+				return pointerSymbol.PointedAtType.ContainingType;
+			}
+			else
+			{
+				return symbol.ContainingType;
+			}
+		}
+
 		if (options == TypeNameOption.IncludeGenerics)
 		{
-			return self.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+			if (self.Kind == SymbolKind.PointerType)
+			{
+				var name = self.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+				var containingType = GetContainingType(self);
+
+				if (containingType is not null)
+				{
+					return $"{containingType.GetName(options)}.{name}";
+				}
+				else
+				{
+					return name;
+				}
+			}
+			else
+			{
+				return self.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+			}
 		}
 		else if (options == TypeNameOption.Flatten)
 		{
 			if (self.Kind == SymbolKind.PointerType)
 			{
-				return self.ToDisplayString().Replace("*", "Pointer");
+				return self.ToDisplayString().Replace(".", "_").Replace("*", "Pointer");
 			}
 			else if (self.Kind == SymbolKind.FunctionPointerType)
 			{
@@ -105,7 +167,7 @@ internal static class ITypeSymbolExtensions
 			self.TypeKind == TypeKind.Class ?
 				self.GetMembers().OfType<IMethodSymbol>()
 					.Where(_ => _.MethodKind == MethodKind.Constructor &&
-						ISymbolExtensions.CanBeSeenByContainingAssembly(_, containingAssemblyOfInvocationSymbol)).ToImmutableArray() :
+						_.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)).ToImmutableArray() :
 				Array.Empty<IMethodSymbol>().ToImmutableArray();
 
 	internal static ImmutableArray<EventMockableResult> GetMockableEvents(
@@ -170,7 +232,7 @@ internal static class ITypeSymbolExtensions
 		else
 		{
 			foreach (var selfEvent in self.GetMembers().OfType<IEventSymbol>()
-				.Where(_ => !_.IsStatic && _.CanBeReferencedByName && 
+				.Where(_ => !_.IsStatic && _.CanBeReferencedByName &&
 					(_.IsAbstract || _.IsVirtual) && _.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)))
 			{
 				events.Add(new(selfEvent, RequiresExplicitInterfaceImplementation.No, RequiresOverride.Yes));
@@ -181,17 +243,41 @@ internal static class ITypeSymbolExtensions
 	}
 
 	internal static ImmutableArray<MethodMockableResult> GetMockableMethods(
-		this ITypeSymbol self, IAssemblySymbol containingAssemblyOfInvocationSymbol, ref uint memberIdentifier)
+		this ITypeSymbol self, IAssemblySymbol containingAssemblyOfInvocationSymbol,
+		HashSet<ITypeSymbol> shims, Compilation compilation, ref uint memberIdentifier)
 	{
 		var methods = ImmutableArray.CreateBuilder<MethodMockableResult>();
 
 		if (self.TypeKind == TypeKind.Interface)
 		{
+			// We need to get the set of methods from object (static, instance, virtual, non-virtual, doesn't matter)
+			// because the mock object will derive from object,
+			// and interfaces like IEquatable<T> have a method (Equals(T? other))
+			// that have the possibility of colliding with methods from interfaces.
+			// We don't want to include them, we just need to consider them to see
+			// if a method requires explicit implementation
+			var objectSymbol = compilation.GetTypeByMetadataName(typeof(object).FullName)!;
+			var objectMethods = objectSymbol.GetMembers().OfType<IMethodSymbol>()
+				.Where(_ => _.MethodKind == MethodKind.Ordinary && _.CanBeReferencedByName &&
+					_.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol));
+
 			foreach (var selfMethod in self.GetMembers().OfType<IMethodSymbol>()
-				.Where(_ => _.MethodKind == MethodKind.Ordinary && _.CanBeReferencedByName && 
+				.Where(_ => _.MethodKind == MethodKind.Ordinary && _.CanBeReferencedByName &&
 					_.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)))
 			{
-				methods.Add(new(selfMethod, self, RequiresExplicitInterfaceImplementation.No, RequiresOverride.No, memberIdentifier));
+				var selfMethodRequiresExplicit = objectMethods.Any(
+					_ => _.Match(selfMethod) switch
+					{
+						MethodMatch.DifferByReturnTypeOnly or MethodMatch.Exact => true,
+						_ => false
+					}) ? RequiresExplicitInterfaceImplementation.Yes : RequiresExplicitInterfaceImplementation.No;
+				methods.Add(new(selfMethod, self, selfMethodRequiresExplicit, RequiresOverride.No, memberIdentifier));
+
+				if (selfMethod.IsVirtual)
+				{
+					shims.Add(self);
+				}
+
 				memberIdentifier++;
 			}
 
@@ -225,21 +311,51 @@ internal static class ITypeSymbolExtensions
 				}
 			}
 
-			foreach (var baseInterfaceMethodGroup in baseInterfaceMethodGroups)
+			if(baseInterfaceMethodGroups.Count > 0)
 			{
-				if (baseInterfaceMethodGroup.Count == 1)
+				foreach (var baseInterfaceMethodGroup in baseInterfaceMethodGroups)
 				{
-					methods.Add(new(baseInterfaceMethodGroup[0], self,
-						RequiresExplicitInterfaceImplementation.No, RequiresOverride.No, memberIdentifier));
-					memberIdentifier++;
-				}
-				else
-				{
-					foreach (var baseInterfaceMethod in baseInterfaceMethodGroup)
+					if (baseInterfaceMethodGroup.Count == 1)
 					{
-						methods.Add(new(baseInterfaceMethod, self,
-							RequiresExplicitInterfaceImplementation.Yes, RequiresOverride.No, memberIdentifier));
+						// If this one method differs by return type only
+						// from any other method currently captured in the list
+						// (think IEnumerable<T> -> IEnumerable and their GetEnumerator() methods),
+						// or any of the virtual methods from object,
+						// then we must require explicit implementation.
+						var requiresExplicitImplementation = methods.Any(
+							_ => _.Value.Match(baseInterfaceMethodGroup[0]) == MethodMatch.DifferByReturnTypeOnly) ||
+							objectMethods.Any(_ => _.Match(baseInterfaceMethodGroup[0]) switch
+								{
+									MethodMatch.DifferByReturnTypeOnly or MethodMatch.Exact => true,
+									_ => false
+								}) ?
+							RequiresExplicitInterfaceImplementation.Yes :
+							RequiresExplicitInterfaceImplementation.No;
+
+						methods.Add(new(baseInterfaceMethodGroup[0], self,
+							requiresExplicitImplementation, RequiresOverride.No, memberIdentifier));
+
+						if (baseInterfaceMethodGroup[0].IsVirtual)
+						{
+							shims.Add(baseInterfaceMethodGroup[0].ContainingType);
+						}
+
 						memberIdentifier++;
+					}
+					else
+					{
+						foreach (var baseInterfaceMethod in baseInterfaceMethodGroup)
+						{
+							methods.Add(new(baseInterfaceMethod, self,
+								RequiresExplicitInterfaceImplementation.Yes, RequiresOverride.No, memberIdentifier));
+
+							if (baseInterfaceMethod.IsVirtual)
+							{
+								shims.Add(baseInterfaceMethod.ContainingType);
+							}
+
+							memberIdentifier++;
+						}
 					}
 				}
 			}
@@ -252,8 +368,7 @@ internal static class ITypeSymbolExtensions
 			{
 				foreach (var hierarchyMethod in hierarchyType.GetMembers().OfType<IMethodSymbol>()
 					.Where(_ => _.MethodKind == MethodKind.Ordinary && _.CanBeReferencedByName &&
-						_.DeclaredAccessibility == Accessibility.Public && !_.IsStatic &&
-						_.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)))
+						!_.IsStatic && _.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)))
 				{
 					if ((hierarchyMethod.IsAbstract || hierarchyMethod.IsOverride || hierarchyMethod.IsVirtual) &&
 						(!self.IsRecord || hierarchyMethod.Name != nameof(object.Equals)))
@@ -269,6 +384,12 @@ internal static class ITypeSymbolExtensions
 						if (!hierarchyMethod.IsSealed)
 						{
 							methods.Add(new(hierarchyMethod, self, RequiresExplicitInterfaceImplementation.No, RequiresOverride.Yes, memberIdentifier));
+
+							if (hierarchyMethod.ContainingType.TypeKind == TypeKind.Interface && hierarchyMethod.IsVirtual)
+							{
+								shims.Add(hierarchyMethod.ContainingType);
+							}
+
 							memberIdentifier++;
 						}
 					}
@@ -280,7 +401,8 @@ internal static class ITypeSymbolExtensions
 	}
 
 	internal static ImmutableArray<PropertyMockableResult> GetMockableProperties(
-		this ITypeSymbol self, IAssemblySymbol containingAssemblyOfInvocationSymbol, ref uint memberIdentifier)
+		this ITypeSymbol self, IAssemblySymbol containingAssemblyOfInvocationSymbol,
+		HashSet<ITypeSymbol> shims, ref uint memberIdentifier)
 	{
 		static bool AreParametersEqual(IPropertySymbol property1, IPropertySymbol property2)
 		{
@@ -312,6 +434,11 @@ internal static class ITypeSymbolExtensions
 			{
 				var accessors = selfProperty.GetAccessors();
 				properties.Add(new(selfProperty, self, RequiresExplicitInterfaceImplementation.No, RequiresOverride.No, accessors, memberIdentifier));
+
+				if (selfProperty.IsVirtual)
+				{
+					shims.Add(self);
+				}
 
 				memberIdentifier++;
 
@@ -357,6 +484,12 @@ internal static class ITypeSymbolExtensions
 					var accessors = baseInterfacePropertyGroup[0].GetAccessors();
 					properties.Add(new(baseInterfacePropertyGroup[0], self,
 						RequiresExplicitInterfaceImplementation.No, RequiresOverride.No, accessors, memberIdentifier));
+
+					if (baseInterfacePropertyGroup[0].IsVirtual)
+					{
+						shims.Add(baseInterfacePropertyGroup[0].ContainingType);
+					}
+
 					memberIdentifier++;
 
 					if (accessors == PropertyAccessor.GetAndSet || accessors == PropertyAccessor.GetAndInit)
@@ -371,6 +504,12 @@ internal static class ITypeSymbolExtensions
 						var accessors = baseInterfaceProperty.GetAccessors();
 						properties.Add(new(baseInterfaceProperty, self,
 							RequiresExplicitInterfaceImplementation.Yes, RequiresOverride.No, accessors, memberIdentifier));
+
+						if (baseInterfaceProperty.IsVirtual)
+						{
+							shims.Add(baseInterfaceProperty.ContainingType);
+						}
+
 						memberIdentifier++;
 
 						if (accessors == PropertyAccessor.GetAndSet || accessors == PropertyAccessor.GetAndInit)
@@ -388,8 +527,7 @@ internal static class ITypeSymbolExtensions
 			foreach (var hierarchyType in hierarchy)
 			{
 				foreach (var hierarchyProperty in hierarchyType.GetMembers().OfType<IPropertySymbol>()
-					.Where(_ => _.DeclaredAccessibility == Accessibility.Public && !_.IsStatic &&
-						(_.IsIndexer || _.CanBeReferencedByName) &&
+					.Where(_ => !_.IsStatic && (_.IsIndexer || _.CanBeReferencedByName) &&
 						_.CanBeSeenByContainingAssembly(containingAssemblyOfInvocationSymbol)))
 				{
 					if (hierarchyProperty.IsAbstract || hierarchyProperty.IsOverride || hierarchyProperty.IsVirtual)
@@ -407,6 +545,12 @@ internal static class ITypeSymbolExtensions
 						{
 							var accessors = hierarchyProperty.GetAccessors();
 							properties.Add(new(hierarchyProperty, self, RequiresExplicitInterfaceImplementation.No, RequiresOverride.Yes, accessors, memberIdentifier));
+
+							if (hierarchyProperty.ContainingType.TypeKind == TypeKind.Interface && hierarchyProperty.IsVirtual)
+							{
+								shims.Add(hierarchyProperty.ContainingType);
+							}
+
 							memberIdentifier++;
 
 							if (accessors == PropertyAccessor.GetAndSet || accessors == PropertyAccessor.GetAndInit)
